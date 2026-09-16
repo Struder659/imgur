@@ -1,1 +1,1 @@
-https://moshiax.github.io/imgur/
+https://struder659.github.io/imgur/
