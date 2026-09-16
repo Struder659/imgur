@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Random Imgur Image Generator</title>
+    <link rel="preconnect" href="https://i.imgur.com">
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -86,6 +87,30 @@
 
 
 
+        .image-card { position: relative; min-width: 0; align-self: start; }
+        .image-card:not(.loaded) img { opacity: 0; }
+        .download-button {
+            position: absolute;
+            right: 8px;
+            bottom: 8px;
+            padding: 6px 9px;
+            border: 1px solid rgba(255, 255, 255, 0.45);
+            border-radius: 5px;
+            background: rgba(0, 0, 0, 0.35);
+            color: #fff;
+            font: 12px Arial, sans-serif;
+            cursor: pointer;
+        }
+        .download-button:hover, .download-button:focus-visible { background: rgba(0, 0, 0, 0.65); }
+        .download-button:disabled { cursor: wait; }
+        .image-card:not(.loaded) .download-button { visibility: hidden; }
+        .img-container img { display: block; width: auto; height: auto; max-width: 90vw; max-height: 90vh; }
+        .download-status {
+            position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+            max-width: 90vw; padding: 10px 16px; border-radius: 5px;
+            background: rgba(0, 0, 0, 0.85); color: white; z-index: 10000;
+        }
+        .download-status:empty { display: none; }
     </style>
 </head>
 <body>
@@ -95,80 +120,7 @@
         </div>
     </div>
 
-    <script>
-        function generateRandomImgurImage() {
-            const char = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-            const id = Array.from({ length: 5 }, () => char[Math.floor(Math.random() * char.length)]).join("") + "b";
-            return `https://i.imgur.com/${id}.png`;
-        }
-
-        function checkImageLoad(image) {
-            if (image.naturalWidth !== 161) {
-                image.style.opacity = 1;
-            } else {
-                reloadImage(image);
-            }
-        }
-
-        function reloadImage(image) {
-            image.src = generateRandomImgurImage();
-        }
-
-function populateImageGrid() {
-    const imageGrid = document.getElementById("imageGrid");
-    const numColumns = Math.floor(window.innerWidth / 160); // Определяем количество столбцов на экране
-    const numRows = Math.ceil(window.innerHeight / 160); // Определяем количество строк на экране
-    const numImages = numColumns * numRows; // Вычисляем общее количество изображений для заполнения экрана
-    for (let i = 0; i < numImages; i++) {
-        const url = generateRandomImgurImage();
-        const img = `<img src="${url}" style="opacity:0;" onload="checkImageLoad(this)" onclick="openImage(this)">`;
-        imageGrid.insertAdjacentHTML("beforeend", img);
-    }
-}
-
-        // Generate initial images
-        populateImageGrid();
-
-        // Function to open image in a modal
-function openImage(image) {
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-
-const container = document.createElement('div');
-container.className = 'img-container'; // Добавляем класс для контейнера изображения
-
-const img = document.createElement('img');
-img.style.maxWidth = '100%'; // Изменено на 100%
-img.style.maxHeight = '100%'; // Изменено на 100%
-img.onload = function() {
-    const imgurLink = document.createElement('a');
-    imgurLink.href = image.src.replace('b.png', '.png');
-    imgurLink.target = '_blank';
-    imgurLink.innerText = 'Open on Imgur';
-    imgurLink.className = 'imgur-link';
-
-    container.appendChild(img); // Добавляем изображение в контейнер
-    container.appendChild(imgurLink); // Добавляем ссылку в контейнер после изображения
-
-    modal.appendChild(container); // Добавляем контейнер в модальное окно
-    document.body.appendChild(modal);
-};
-img.src = image.src.replace('b.png', '.png');
-
-
-    modal.onclick = function() {
-        document.body.removeChild(modal);
-    };
-}
-
-
-
-        // Regenerate images when scrolling to near bottom of page
-        window.addEventListener('scroll', function() {
-            if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 1000) {
-                populateImageGrid();
-            }
-        });
-    </script>
+    <div class="download-status" role="status" aria-live="polite"></div>
+    <script src="app.js" defer></script>
 </body>
 </html>
