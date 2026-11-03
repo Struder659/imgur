@@ -5,6 +5,7 @@
     const characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let modal = null;
     let statusTimer;
+    let space;
 
     function randomId() {
         let id = '';
@@ -22,6 +23,7 @@
                 card.classList.add('loaded');
                 img.tabIndex = 0;
                 img.onload = img.onerror = null;
+                card.dispatchEvent(new Event('imageupdate'));
                 detectFormat(card);
             } else {
                 loadThumbnail(card);
@@ -60,6 +62,7 @@
             img.onerror = () => {
                 img.onerror = null;
                 img.src = thumbnail;
+                card.dispatchEvent(new Event('imageupdate'));
             };
             // Square thumbnails are still images. Use the original GIF to animate.
             img.src = `https://i.imgur.com/${card.dataset.id}.gif`;
@@ -90,12 +93,12 @@
         return request;
     }
 
-    function populateImageGrid() {
+    function populateImageGrid(count, register = true) {
         const columns = Math.max(1, Math.floor(window.innerWidth / 160));
         const rows = Math.max(1, Math.ceil(window.innerHeight / 160));
         const fragment = document.createDocumentFragment();
         const cards = [];
-        for (let i = 0; i < columns * rows; i++) {
+        for (let i = 0; i < (count ?? columns * rows); i++) {
             const card = document.createElement('div');
             card.className = 'image-card';
             const img = document.createElement('img');
@@ -108,10 +111,13 @@
             cards.push(card);
         }
         grid.append(fragment);
+        if (register) space?.addSources(cards);
         cards.forEach(loadThumbnail);
+        return cards;
     }
 
     function loadMoreOnScroll() {
+        if (space?.active) return;
         if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 1000) {
             populateImageGrid();
         }
@@ -212,7 +218,7 @@
     function warmDownload(event) {
         const button = event.target.closest('.download-button');
         if (!button) return;
-        const card = button.imageCard || button.closest('.image-card');
+        const card = button.imageCard || imageCardFrom(button);
         if (card?.dataset.loaded) prepareDownload(card).catch(() => {});
     }
 
@@ -306,15 +312,20 @@
         button.focus({ preventScroll: true });
     }
 
-    grid.addEventListener('click', event => {
-        const card = event.target.closest('.image-card');
+    function imageCardFrom(element) {
+        const card = element.closest('.image-card');
+        return card?.sourceCard || card;
+    }
+
+    document.addEventListener('click', event => {
+        const card = imageCardFrom(event.target);
         if (!card?.dataset.loaded) return;
         const button = event.target.closest('.download-button');
         if (button) saveImage(card, button);
         else if (event.target.tagName === 'IMG') openImage(card);
     });
-    grid.addEventListener('keydown', event => {
-        if (event.target.tagName === 'IMG' && (event.key === 'Enter' || event.key === ' ')) {
+    document.addEventListener('keydown', event => {
+        if (imageCardFrom(event.target) && event.target.tagName === 'IMG' && (event.key === 'Enter' || event.key === ' ')) {
             event.preventDefault();
             event.target.click();
         }
@@ -323,5 +334,10 @@
     document.addEventListener('pointerdown', warmDownload, { passive: true });
     document.addEventListener('focusin', warmDownload);
     window.addEventListener('scroll', loadMoreOnScroll, { passive: true });
+    space = new window.SpaceField({
+        grid,
+        createCards: count => populateImageGrid(count, false),
+        isModalOpen: () => Boolean(modal)
+    });
     populateImageGrid();
 })();
