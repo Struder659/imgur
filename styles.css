@@ -23,7 +23,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
     position: relative;
     z-index: 2;
     max-width: 1240px;
-    margin: 20px auto;
+    margin: 76px auto 20px;
     padding: 20px;
     background: rgba(12, 15, 25, .94);
     border: 1px solid rgba(201, 214, 255, .11);
@@ -65,9 +65,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .space-controls {
     position: fixed;
-    top: 50%;
-    right: max(14px, env(safe-area-inset-right));
-    transform: translateY(-50%);
+    top: max(16px, env(safe-area-inset-top));
+    left: max(14px, env(safe-area-inset-left));
     z-index: 20;
     display: flex;
     flex-direction: column;
@@ -165,9 +164,9 @@ body.space-mode { overflow: hidden; overscroll-behavior: none; }
 .download-status:empty { display: none; }
 
 @media (max-width: 600px) {
-    .container { margin: 12px 8px; padding: 12px; }
+    .container { margin: 76px 8px 12px; padding: 12px; }
     .image-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
-    .space-controls { right: max(10px, env(safe-area-inset-right)); }
+    .space-controls { left: max(10px, env(safe-area-inset-left)); }
 }
 @media (prefers-reduced-motion: reduce) {
     .container, .space-viewport, .image-card img { transition: none; }
