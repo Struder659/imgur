@@ -119,7 +119,9 @@ body.space-mode { overflow: hidden; overscroll-behavior: none; }
 .space-mode .container { transform: translate3d(-110vw, 0, 0); opacity: 0; pointer-events: none; }
 .space-mode .space-viewport { opacity: 1; visibility: visible; pointer-events: auto; }
 .space-settled .container { visibility: hidden; content-visibility: hidden; }
-.space-paused .space-viewport { cursor: default; }
+.space-paused .space-viewport { cursor: grab; }
+.space-dragging .space-viewport, .space-dragging .space-card img { cursor: grabbing; }
+.space-viewport { -webkit-user-select: none; user-select: none; }
 
 .modal {
     position: fixed;

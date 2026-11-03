@@ -4,6 +4,7 @@
     const CELL_WIDTH = 280;
     const CELL_HEIGHT = 270;
     const MAX_SPEED = 1000; // Screen pixels per second, including diagonal movement.
+    const FRICTION = 4.2;
     const MIN_ZOOM = 0.03;
     const MAX_ZOOM = 2.25;
     const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -38,6 +39,7 @@
             this.origin = { x: 0, y: 0 };
             this.targetZoom = this.camera.zoom;
             this.velocity = { x: 0, y: 0 };
+            this.inertia = false;
             this.pointer = { x: 0, y: 0 };
             this.keys = new Set();
             this.paused = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -215,7 +217,11 @@
             this.pointer.x = this.pointer.y = 0;
             this.velocity.x = this.velocity.y = 0;
             this.keys.clear();
+            this.inertia = false;
+            const drag = this.drag;
             this.drag = null;
+            document.body.classList.remove('space-dragging');
+            if (drag && this.viewport.hasPointerCapture(drag.id)) this.viewport.releasePointerCapture(drag.id);
         }
 
         cancelFrame() {
@@ -257,32 +263,62 @@
                 this.zoomAnchor = null;
             }
 
-            let vx = 0;
-            let vy = 0;
-            if (!this.paused && !this.isModalOpen() && !zooming) {
-                if (this.drag?.moved) {
-                    vx = (this.drag.targetX - this.camera.x) * this.camera.zoom * 10;
-                    vy = (this.drag.targetY - this.camera.y) * this.camera.zoom * 10;
-                } else if (!this.drag) {
-                    vx = ((this.keys.has('ArrowRight') ? 1 : 0) - (this.keys.has('ArrowLeft') ? 1 : 0)) * MAX_SPEED;
-                    vy = ((this.keys.has('ArrowDown') ? 1 : 0) - (this.keys.has('ArrowUp') ? 1 : 0)) * MAX_SPEED;
-                    if (!vx && !vy) {
-                        vx = this.pointer.x * MAX_SPEED;
-                        vy = this.pointer.y * MAX_SPEED;
+            let stepX = 0;
+            let stepY = 0;
+            if (this.isModalOpen() || zooming) {
+                this.velocity.x = this.velocity.y = 0;
+                this.inertia = false;
+            } else if (this.drag) {
+                // Dragging takes priority over mouse steering and also works when
+                // automatic movement is paused. Follow the hand without spring lag.
+                if (this.drag.moved && dt > 0) {
+                    stepX = (this.drag.targetX - this.camera.x) * this.camera.zoom;
+                    stepY = (this.drag.targetY - this.camera.y) * this.camera.zoom;
+                    const distance = Math.hypot(stepX, stepY);
+                    const limit = MAX_SPEED * dt;
+                    if (distance > limit) {
+                        stepX *= limit / distance;
+                        stepY *= limit / distance;
                     }
+                    this.velocity.x = stepX / dt;
+                    this.velocity.y = stepY / dt;
+                } else {
+                    this.velocity.x = this.velocity.y = 0;
                 }
+            } else if (this.inertia) {
+                // Integrate exponential friction exactly, so the coast distance
+                // stays the same across refresh rates and background timer ticks.
+                const decay = Math.exp(-FRICTION * dt);
+                stepX = this.velocity.x * (1 - decay) / FRICTION;
+                stepY = this.velocity.y * (1 - decay) / FRICTION;
+                this.velocity.x *= decay;
+                this.velocity.y *= decay;
+                if (Math.hypot(this.velocity.x, this.velocity.y) < 3) {
+                    this.velocity.x = this.velocity.y = 0;
+                    this.inertia = false;
+                }
+            } else if (this.paused) {
+                this.velocity.x = this.velocity.y = 0;
+            } else {
+                let vx = ((this.keys.has('ArrowRight') ? 1 : 0) - (this.keys.has('ArrowLeft') ? 1 : 0)) * MAX_SPEED;
+                let vy = ((this.keys.has('ArrowDown') ? 1 : 0) - (this.keys.has('ArrowUp') ? 1 : 0)) * MAX_SPEED;
+                if (!vx && !vy) {
+                    vx = this.pointer.x * MAX_SPEED;
+                    vy = this.pointer.y * MAX_SPEED;
+                }
+                const length = Math.hypot(vx, vy);
+                if (length > MAX_SPEED) {
+                    vx *= MAX_SPEED / length;
+                    vy *= MAX_SPEED / length;
+                }
+                const smoothing = 1 - Math.exp(-10 * dt);
+                this.velocity.x += (vx - this.velocity.x) * smoothing;
+                this.velocity.y += (vy - this.velocity.y) * smoothing;
+                stepX = this.velocity.x * dt;
+                stepY = this.velocity.y * dt;
             }
-            const length = Math.hypot(vx, vy);
-            if (length > MAX_SPEED) {
-                vx *= MAX_SPEED / length;
-                vy *= MAX_SPEED / length;
-            }
-            const blocked = this.paused || this.isModalOpen() || zooming;
-            const smoothing = 1 - Math.exp(-10 * dt);
-            this.velocity.x = blocked ? 0 : this.velocity.x + (vx - this.velocity.x) * smoothing;
-            this.velocity.y = blocked ? 0 : this.velocity.y + (vy - this.velocity.y) * smoothing;
-            this.camera.x += this.velocity.x * dt / this.camera.zoom;
-            this.camera.y += this.velocity.y * dt / this.camera.zoom;
+            this.camera.x += stepX / this.camera.zoom;
+            this.camera.y += stepY / this.camera.zoom;
             if (!document.hidden) {
                 this.ensureRegion();
                 this.render();
@@ -294,17 +330,23 @@
             const viewport = this.viewport;
             this.toggle.addEventListener('click', () => this.setActive(!this.active));
             viewport.addEventListener('pointermove', event => {
-                if (this.paused || this.isModalOpen()) return;
+                if (this.isModalOpen()) return;
                 if (this.drag && this.drag.id === event.pointerId) {
                     const dx = event.clientX - this.drag.startX;
                     const dy = event.clientY - this.drag.startY;
                     if (Math.hypot(dx, dy) > 6) this.drag.moved = true;
                     if (this.drag.moved) {
+                        document.body.classList.add('space-dragging');
                         this.drag.targetX = this.drag.cameraX - dx / this.camera.zoom;
                         this.drag.targetY = this.drag.cameraY - dy / this.camera.zoom;
+                        const samples = this.drag.samples;
+                        const time = performance.now();
+                        samples.push({ x: event.clientX, y: event.clientY, time });
+                        while (samples.length > 2 && time - samples[1].time > 100) samples.shift();
                         viewport.setPointerCapture(event.pointerId);
                     }
-                } else if (event.pointerType === 'mouse') {
+                } else if (!this.paused && event.pointerType === 'mouse') {
+                    this.inertia = false;
                     const deadZone = value => Math.sign(value) * Math.max(0, (Math.abs(value) - 0.18) / 0.82);
                     this.pointer.x = deadZone(clamp((event.clientX / innerWidth - 0.5) * 2, -1, 1));
                     this.pointer.y = deadZone(clamp((event.clientY / innerHeight - 0.5) * 2, -1, 1));
@@ -316,22 +358,47 @@
                     this.setPaused(!this.paused);
                     return;
                 }
-                if (event.button !== 0 || this.paused || event.target.closest('button, a')) return;
+                if (event.button !== 0 || this.isModalOpen() || event.target.closest('button, a')) return;
+                this.inertia = false;
+                this.velocity.x = this.velocity.y = 0;
+                this.pointer.x = this.pointer.y = 0;
+                this.keys.clear();
                 this.drag = {
                     id: event.pointerId, startX: event.clientX, startY: event.clientY,
                     cameraX: this.camera.x, cameraY: this.camera.y,
-                    targetX: this.camera.x, targetY: this.camera.y, moved: false
+                    targetX: this.camera.x, targetY: this.camera.y, moved: false,
+                    samples: [{ x: event.clientX, y: event.clientY, time: performance.now() }]
                 };
             });
             const finishDrag = event => {
-                if (this.drag?.moved) this.suppressClickUntil = performance.now() + 200;
+                const drag = this.drag;
+                if (!drag || drag.id !== event.pointerId) return;
+                const released = event.type === 'pointerup';
+                if (drag.moved) this.suppressClickUntil = performance.now() + 200;
+                this.velocity.x = this.velocity.y = 0;
+                if (drag.moved && released) {
+                    const first = drag.samples[0];
+                    const last = drag.samples[drag.samples.length - 1];
+                    if (performance.now() - last.time < 100) {
+                        const duration = clamp((last.time - first.time) / 1000, 0.016, 0.1);
+                        this.velocity.x = (first.x - last.x) / duration;
+                        this.velocity.y = (first.y - last.y) / duration;
+                        const speed = Math.hypot(this.velocity.x, this.velocity.y);
+                        if (speed > MAX_SPEED) {
+                            this.velocity.x *= MAX_SPEED / speed;
+                            this.velocity.y *= MAX_SPEED / speed;
+                        }
+                    }
+                }
+                this.inertia = Math.hypot(this.velocity.x, this.velocity.y) >= 3;
                 this.drag = null;
                 this.pointer.x = this.pointer.y = 0;
-                this.velocity.x = this.velocity.y = 0;
+                document.body.classList.remove('space-dragging');
                 if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
             };
             viewport.addEventListener('pointerup', finishDrag);
             viewport.addEventListener('pointercancel', finishDrag);
+            viewport.addEventListener('lostpointercapture', finishDrag);
             viewport.addEventListener('click', event => {
                 if (performance.now() < (this.suppressClickUntil || 0)) {
                     event.preventDefault();
@@ -344,6 +411,9 @@
             viewport.addEventListener('dragstart', event => event.preventDefault());
             viewport.addEventListener('wheel', event => {
                 event.preventDefault();
+                const pointer = { ...this.pointer };
+                this.stopInput();
+                this.pointer = pointer;
                 const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? innerHeight : 1;
                 const delta = clamp(event.deltaY * unit, -160, 160);
                 const screenX = event.clientX - innerWidth / 2;
@@ -373,7 +443,13 @@
                 // Clear keys and drag state after focus loss, preserving mouse
                 // steering so the camera keeps travelling outside the window.
                 this.keys.clear();
-                this.drag = null;
+                if (this.drag) {
+                    const id = this.drag.id;
+                    this.drag = null;
+                    this.inertia = Math.hypot(this.velocity.x, this.velocity.y) >= 3;
+                    document.body.classList.remove('space-dragging');
+                    if (viewport.hasPointerCapture(id)) viewport.releasePointerCapture(id);
+                }
             };
             window.addEventListener('blur', releaseControls);
             document.addEventListener('visibilitychange', () => {
