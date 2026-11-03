@@ -1,10 +1,10 @@
 (() => {
     'use strict';
 
-    const CELL_WIDTH = 360;
-    const CELL_HEIGHT = 310;
-    const MAX_SPEED = 280; // Screen pixels per second, including diagonal movement.
-    const MIN_ZOOM = 0.35;
+    const CELL_WIDTH = 280;
+    const CELL_HEIGHT = 270;
+    const MAX_SPEED = 1000; // Screen pixels per second, including diagonal movement.
+    const MIN_ZOOM = 0.03;
     const MAX_ZOOM = 2.25;
     const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -30,7 +30,6 @@
             this.world = document.getElementById('spaceWorld');
             this.gallery = document.getElementById('gallery');
             this.toggle = document.getElementById('spaceToggle');
-            this.pauseButton = document.getElementById('cameraPause');
             this.cells = new Map();
             this.sources = new WeakSet();
             this.coordinates = spiral();
@@ -54,9 +53,9 @@
             const seed = Math.abs((Math.imul(column, 73856093) ^ Math.imul(row, 19349663)) | 0);
             this.cells.set(key, {
                 source, column, row,
-                x: column * CELL_WIDTH - 110 + seed % 51 - 25,
-                y: row * CELL_HEIGHT - 100 + (seed >>> 5) % 41 - 20,
-                width: 190 + (seed >>> 8) % 61,
+                x: column * CELL_WIDTH - 110 + seed % 17 - 8,
+                y: row * CELL_HEIGHT - 110 + (seed >>> 5) % 13 - 6,
+                width: 190 + (seed >>> 8) % 41,
                 view: null,
                 cleanup: null
             });
@@ -114,21 +113,30 @@
             const { x, y, zoom } = this.camera;
             const halfWidth = innerWidth / (2 * zoom) + 500;
             const halfHeight = innerHeight / (2 * zoom) + 600;
-            const minColumn = Math.floor((x - halfWidth) / CELL_WIDTH);
-            const maxColumn = Math.ceil((x + halfWidth) / CELL_WIDTH);
-            const minRow = Math.floor((y - halfHeight) / CELL_HEIGHT);
-            const maxRow = Math.ceil((y + halfHeight) / CELL_HEIGHT);
-            const regionKey = `${minColumn}:${maxColumn}:${minRow}:${maxRow}`;
+            // At extreme zoom-out, sample unexplored areas at lower detail instead
+            // of starting tens of thousands of image searches in a single frame.
+            // Already discovered images remain in place and are always included.
+            const stride = Math.max(1, 2 ** Math.ceil(Math.log2(0.16 / zoom)));
+            const minColumn = Math.floor((x - halfWidth) / (CELL_WIDTH * stride)) * stride;
+            const maxColumn = Math.ceil((x + halfWidth) / (CELL_WIDTH * stride)) * stride;
+            const minRow = Math.floor((y - halfHeight) / (CELL_HEIGHT * stride)) * stride;
+            const maxRow = Math.ceil((y + halfHeight) / (CELL_HEIGHT * stride)) * stride;
+            const regionKey = `${minColumn}:${maxColumn}:${minRow}:${maxRow}:${stride}`;
             if (regionKey === this.regionKey) return;
             this.regionKey = regionKey;
 
             const needed = new Set();
             const missing = [];
-            for (let row = minRow; row <= maxRow; row++) {
-                for (let column = minColumn; column <= maxColumn; column++) {
+            for (let row = minRow; row <= maxRow; row += stride) {
+                for (let column = minColumn; column <= maxColumn; column += stride) {
                     const key = `${column},${row}`;
                     needed.add(key);
                     if (!this.cells.has(key)) missing.push([column, row]);
+                }
+            }
+            for (const [key, cell] of this.cells) {
+                if (cell.column >= minColumn && cell.column <= maxColumn && cell.row >= minRow && cell.row <= maxRow) {
+                    needed.add(key);
                 }
             }
             // Grow the world in every direction. Keep every original card in the
@@ -171,7 +179,6 @@
             this.stopInput();
             this.toggle.setAttribute('aria-pressed', String(active));
             this.toggle.title = active ? 'Вернуться в ленту' : 'Открыть пространство изображений';
-            this.pauseButton.hidden = !active;
             this.viewport.inert = !active;
             this.viewport.setAttribute('aria-hidden', String(!active));
             this.gallery.inert = active;
@@ -186,13 +193,12 @@
                 this.setPaused(this.paused);
                 this.viewport.focus({ preventScroll: true });
                 this.lastTime = performance.now();
-                this.frame = requestAnimationFrame(this.tick);
+                this.scheduleFrame();
                 this.settleTimer = setTimeout(() => {
                     if (this.active) document.body.classList.add('space-settled');
                 }, 720);
             } else {
-                cancelAnimationFrame(this.frame);
-                this.frame = 0;
+                this.cancelFrame();
                 document.body.classList.remove('space-mode', 'space-paused');
                 window.scrollTo(0, this.savedScroll || 0);
                 this.toggle.focus({ preventScroll: true });
@@ -203,10 +209,6 @@
             this.paused = paused;
             this.stopInput();
             document.body.classList.toggle('space-paused', this.active && paused);
-            this.pauseButton.setAttribute('aria-pressed', String(paused));
-            const label = paused ? 'Продолжить движение камеры' : 'Приостановить камеру';
-            this.pauseButton.title = `${label} (нажатие колеса мыши)`;
-            this.pauseButton.setAttribute('aria-label', label);
         }
 
         stopInput() {
@@ -216,9 +218,31 @@
             this.drag = null;
         }
 
+        cancelFrame() {
+            cancelAnimationFrame(this.frame);
+            clearTimeout(this.backgroundTimer);
+            this.frame = 0;
+            this.backgroundTimer = 0;
+        }
+
+        scheduleFrame() {
+            if (!this.active) return;
+            // rAF is suspended in hidden tabs. Keep the camera's logical position
+            // moving there; refresh the visible field when the tab returns.
+            if (document.hidden) {
+                this.backgroundTimer = setTimeout(() => {
+                    this.backgroundTimer = 0;
+                    this.tick(performance.now());
+                }, 100);
+            } else {
+                this.frame = requestAnimationFrame(this.tick);
+            }
+        }
+
         tick(time) {
             if (!this.active) return;
-            const dt = Math.min((time - this.lastTime) / 1000, 0.04);
+            this.frame = 0;
+            const dt = clamp((time - this.lastTime) / 1000, 0, document.hidden ? 1 : 0.1);
             this.lastTime = time;
             const zooming = Math.abs(this.camera.zoom - this.targetZoom) > 0.0001;
             if (zooming) {
@@ -235,7 +259,7 @@
 
             let vx = 0;
             let vy = 0;
-            if (!this.paused && !this.isModalOpen() && !document.hidden && !zooming) {
+            if (!this.paused && !this.isModalOpen() && !zooming) {
                 if (this.drag?.moved) {
                     vx = (this.drag.targetX - this.camera.x) * this.camera.zoom * 10;
                     vy = (this.drag.targetY - this.camera.y) * this.camera.zoom * 10;
@@ -253,21 +277,22 @@
                 vx *= MAX_SPEED / length;
                 vy *= MAX_SPEED / length;
             }
-            const blocked = this.paused || this.isModalOpen() || document.hidden || zooming;
+            const blocked = this.paused || this.isModalOpen() || zooming;
             const smoothing = 1 - Math.exp(-10 * dt);
             this.velocity.x = blocked ? 0 : this.velocity.x + (vx - this.velocity.x) * smoothing;
             this.velocity.y = blocked ? 0 : this.velocity.y + (vy - this.velocity.y) * smoothing;
             this.camera.x += this.velocity.x * dt / this.camera.zoom;
             this.camera.y += this.velocity.y * dt / this.camera.zoom;
-            this.ensureRegion();
-            this.render();
-            this.frame = requestAnimationFrame(this.tick);
+            if (!document.hidden) {
+                this.ensureRegion();
+                this.render();
+            }
+            this.scheduleFrame();
         }
 
         bindControls() {
             const viewport = this.viewport;
             this.toggle.addEventListener('click', () => this.setActive(!this.active));
-            this.pauseButton.addEventListener('click', () => this.setPaused(!this.paused));
             viewport.addEventListener('pointermove', event => {
                 if (this.paused || this.isModalOpen()) return;
                 if (this.drag && this.drag.id === event.pointerId) {
@@ -284,9 +309,6 @@
                     this.pointer.x = deadZone(clamp((event.clientX / innerWidth - 0.5) * 2, -1, 1));
                     this.pointer.y = deadZone(clamp((event.clientY / innerHeight - 0.5) * 2, -1, 1));
                 }
-            });
-            viewport.addEventListener('pointerleave', () => {
-                this.pointer.x = this.pointer.y = 0;
             });
             viewport.addEventListener('pointerdown', event => {
                 if (event.button === 1) {
@@ -347,8 +369,18 @@
                 }
             });
             document.addEventListener('keyup', event => this.keys.delete(event.key));
-            window.addEventListener('blur', () => this.stopInput());
-            document.addEventListener('visibilitychange', () => this.stopInput());
+            const releaseControls = () => {
+                // Clear keys and drag state after focus loss, preserving mouse
+                // steering so the camera keeps travelling outside the window.
+                this.keys.clear();
+                this.drag = null;
+            };
+            window.addEventListener('blur', releaseControls);
+            document.addEventListener('visibilitychange', () => {
+                releaseControls();
+                this.cancelFrame();
+                this.scheduleFrame();
+            });
             window.addEventListener('resize', () => { this.regionKey = ''; });
         }
     }

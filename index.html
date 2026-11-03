@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <title>Random Imgur Image Generator</title>
     <link rel="preconnect" href="https://i.imgur.com">
-    <link rel="stylesheet" href="styles.css?v=space-2">
+    <link rel="stylesheet" href="styles.css?v=space-3">
 </head>
 <body>
     <main class="container" id="gallery">
@@ -22,15 +22,10 @@
     <nav class="space-controls" aria-label="Режим просмотра">
         <button class="space-toggle" id="spaceToggle" type="button" aria-pressed="false"
                 aria-controls="spaceViewport" title="Открыть пространство изображений">Space</button>
-        <button class="camera-pause" id="cameraPause" type="button" hidden aria-pressed="false"
-                aria-label="Приостановить камеру" title="Приостановить камеру (нажатие колеса мыши)">
-            <svg class="pause-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>
-            <svg class="play-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="m8 5 11 7-11 7Z"/></svg>
-        </button>
     </nav>
 
     <div class="download-status" role="status" aria-live="polite"></div>
-    <script src="space.js?v=space-1" defer></script>
+    <script src="space.js?v=space-3" defer></script>
     <script src="app.js?v=space-1" defer></script>
 </body>
 </html>
